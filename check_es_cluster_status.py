@@ -1,8 +1,8 @@
-#!/usr/bin/python
-from nagioscheck import NagiosCheck, UsageError
-from nagioscheck import PerformanceMetric, Status
-import urllib2
-import optparse
+#!/usr/bin/python3
+import nagiosplugin
+import urllib.request
+import argparse
+import sys
 
 try:
     import json
@@ -10,46 +10,54 @@ except ImportError:
     import simplejson as json
 
 
-class ESClusterHealthCheck(NagiosCheck):
+class ESClusterHealth(nagiosplugin.Resource):
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
 
-    def __init__(self):
-
-        NagiosCheck.__init__(self)
-
-        self.add_option('H', 'host', 'host', 'The cluster to check')
-        self.add_option('P', 'port', 'port', 'The ES port - defaults to 9200')
-
-    def check(self, opts, args):
-        host = opts.host
-        port = int(opts.port or '9200')
-
+    def probe(self):
         try:
-            response = urllib2.urlopen(r'http://%s:%d/_cluster/health'
-                                       % (host, port))
-        except urllib2.HTTPError, e:
-            raise Status('unknown', ("API failure", None,
-                         "API failure:\n\n%s" % str(e)))
-        except urllib2.URLError, e:
-            raise Status('critical', (e.reason))
+            response = urllib.request.urlopen(f'http://{self.host}:{self.port}/_cluster/health')
+        except urllib.error.HTTPError as e:
+            raise nagiosplugin.CheckError(f"API failure:\n\n{str(e)}")
+        except urllib.error.URLError as e:
+            raise nagiosplugin.CheckError(f"Connection error: {e.reason}")
 
-        response_body = response.read()
+        response_body = response.read().decode('utf-8')
 
         try:
             es_cluster_health = json.loads(response_body)
         except ValueError:
-            raise Status('unknown', ("API returned nonsense",))
+            raise nagiosplugin.CheckError("API returned nonsense")
 
-        cluster_status = es_cluster_health['status'].lower()
+        return [nagiosplugin.Metric('status', es_cluster_health['status'].lower(), context='status')]
 
-        if cluster_status == 'red':
-            raise Status("CRITICAL", "Cluster status is currently reporting as "
-                         "Red")
-        elif cluster_status == 'yellow':
-            raise Status("WARNING", "Cluster status is currently reporting as "
-                         "Yellow")
+
+class ESClusterStatusContext(nagiosplugin.Context):
+    def evaluate(self, metric, resource):
+        status = metric.value
+        if status == 'red':
+            return nagiosplugin.Result(nagiosplugin.Critical, "Cluster status is currently reporting as Red")
+        elif status == 'yellow':
+            return nagiosplugin.Result(nagiosplugin.Warn, "Cluster status is currently reporting as Yellow")
         else:
-            raise Status("OK",
-                         "Cluster status is currently reporting as Green")
+            return nagiosplugin.Result(nagiosplugin.Ok, "Cluster status is currently reporting as Green")
+
+
+@nagiosplugin.guarded
+def main():
+    argp = argparse.ArgumentParser(description='Check Elasticsearch cluster health')
+    argp.add_argument('-H', '--host', required=True, help='The cluster to check')
+    argp.add_argument('-P', '--port', default=9200, type=int, help='The ES port - defaults to 9200')
+    
+    args = argp.parse_args()
+    
+    check = nagiosplugin.Check(
+        ESClusterHealth(args.host, args.port),
+        ESClusterStatusContext('status')
+    )
+    check.main()
+
 
 if __name__ == "__main__":
-    ESClusterHealthCheck().run()
+    main()

@@ -1,8 +1,7 @@
-#!/usr/bin/python
-from nagioscheck import NagiosCheck, UsageError
-from nagioscheck import PerformanceMetric, Status
-import urllib2
-import optparse
+#!/usr/bin/python3
+import nagiosplugin
+import urllib.request
+import argparse
 
 try:
     import json
@@ -10,45 +9,58 @@ except ImportError:
     import simplejson as json
 
 
-class ESShardsCheck(NagiosCheck):
+class ESShardsResource(nagiosplugin.Resource):
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
 
-    def __init__(self):
-
-        NagiosCheck.__init__(self)
-
-        self.add_option('H', 'host', 'host', 'The cluster to check')
-        self.add_option('P', 'port', 'port', 'The ES port - defaults to 9200')
-
-    def check(self, opts, args):
-        host = opts.host
-        port = int(opts.port or '9200')
-
+    def probe(self):
         try:
-            response = urllib2.urlopen(r'http://%s:%d/_cluster/health'
-                                       % (host, port))
-        except urllib2.HTTPError, e:
-            raise Status('unknown', ("API failure", None,
-                         "API failure:\n\n%s" % str(e)))
-        except urllib2.URLError, e:
-            raise Status('critical', (e.reason))
+            response = urllib.request.urlopen(f'http://{self.host}:{self.port}/_cluster/health')
+        except urllib.error.HTTPError as e:
+            raise nagiosplugin.CheckError(f"API failure:\n\n{str(e)}")
+        except urllib.error.URLError as e:
+            raise nagiosplugin.CheckError(f"Connection error: {e.reason}")
 
-        response_body = response.read()
+        response_body = response.read().decode('utf-8')
 
         try:
             es_cluster_health = json.loads(response_body)
         except ValueError:
-            raise Status('unknown', ("API returned nonsense",))
+            raise nagiosplugin.CheckError("API returned nonsense")
 
         unassigned_shards = es_cluster_health['unassigned_shards']
+        return [nagiosplugin.Metric('unassigned_shards', unassigned_shards, min=0)]
 
-        if es_cluster_health['unassigned_shards'] != unassigned_shards:
-            raise Status('CRITICAL',
-                         "There are '%s' unassigned shards in the cluster"
-                         % (unassigned_shards))
-        else:
-            raise Status('OK',
-                         "All shards in the cluster are currently assigned")
+
+class ESShardsContext(nagiosplugin.Context):
+    def evaluate(self, metric, resource):
+        if metric.value > 0:
+            return nagiosplugin.Result(
+                nagiosplugin.Critical,
+                f"There are '{metric.value}' unassigned shards in the cluster"
+            )
+        return nagiosplugin.Result(
+            nagiosplugin.Ok,
+            "All shards in the cluster are currently assigned"
+        )
+
+
+@nagiosplugin.guarded
+def main():
+    argp = argparse.ArgumentParser(description='Check Elasticsearch unassigned shards')
+    argp.add_argument('-H', '--host', required=True, help='The cluster to check')
+    argp.add_argument('-P', '--port', default=9200, type=int, help='The ES port - defaults to 9200')
+    
+    args = argp.parse_args()
+    
+    check = nagiosplugin.Check(
+        ESShardsResource(args.host, args.port),
+        ESShardsContext('unassigned_shards')
+    )
+    
+    check.main()
 
 
 if __name__ == "__main__":
-    ESShardsCheck().run()
+    main()
