@@ -16,6 +16,8 @@ class ESJVMHealth(nagiosplugin.Resource):
         self.port = port
         self.warning = warning
         self.critical = critical
+        self.critical_details = ''
+        self.warning_details = ''
 
     def probe(self):
         try:
@@ -49,11 +51,14 @@ class ESJVMHealth(nagiosplugin.Resource):
                 warnings = warnings + 1
                 warning_details.append(f"{node_name} currently running at {jvm_percentage}% JVM mem")
 
+        # Keep detail strings on the resource for Summary; do not emit them as
+        # Metrics (nagiosplugin requires a registered Context per metric name).
+        self.critical_details = '\n'.join(critical_details) if critical_details else ''
+        self.warning_details = '\n'.join(warning_details) if warning_details else ''
+
         return [
-            nagiosplugin.Metric('jvm_critical_nodes', criticals, min=0),
-            nagiosplugin.Metric('jvm_warning_nodes', warnings, min=0),
-            nagiosplugin.Metric('critical_details', '\n'.join(critical_details) if critical_details else ''),
-            nagiosplugin.Metric('warning_details', '\n'.join(warning_details) if warning_details else '')
+            nagiosplugin.Metric('jvm_critical_nodes', criticals, min=0, context='jvm_critical_nodes'),
+            nagiosplugin.Metric('jvm_warning_nodes', warnings, min=0, context='jvm_warning_nodes'),
         ]
 
 
@@ -62,14 +67,15 @@ class ESJVMSummary(nagiosplugin.Summary):
         return "All nodes in the cluster are currently below the % JVM mem warning threshold"
 
     def problem(self, results):
+        resource = results['jvm_critical_nodes'].resource
         if results['jvm_critical_nodes'].metric.value > 0:
             return (f"There are '{results['jvm_critical_nodes'].metric.value}' node(s) in the cluster that have "
                    f"breached the % JVM heap usage critical threshold of {args.critical_threshold}%. They are:\n"
-                   f"{results['critical_details'].metric.value}")
+                   f"{resource.critical_details}")
         elif results['jvm_warning_nodes'].metric.value > 0:
             return (f"There are '{results['jvm_warning_nodes'].metric.value}' node(s) in the cluster that have "
                    f"breached the % JVM mem usage warning threshold of {args.warning_threshold}%. They are:\n"
-                   f"{results['warning_details'].metric.value}")
+                   f"{resource.warning_details}")
 
 
 class ESJVMContext(nagiosplugin.Context):
@@ -87,16 +93,15 @@ def main():
     argp = argparse.ArgumentParser(description='Check Elasticsearch JVM usage')
     argp.add_argument('-H', '--host', required=True, help='The cluster to check')
     argp.add_argument('-P', '--port', default=9200, type=int, help='The ES port - defaults to 9200')
-    argp.add_argument('-C', '--critical-threshold', default=97, type=int, 
+    argp.add_argument('-C', '--critical-threshold', default=97, type=int,
                      help='The level at which we throw a CRITICAL alert - defaults to 97% of the JVM setting')
     argp.add_argument('-W', '--warning-threshold', default=90, type=int,
                      help='The level at which we throw a WARNING alert - defaults to 90% of the JVM setting')
-    
+
     args = argp.parse_args()
-    
+
     check = nagiosplugin.Check(
         ESJVMHealth(args.host, args.port, args.warning_threshold, args.critical_threshold),
-        ESJVMContext('jvm'),
         ESJVMContext('jvm_critical_nodes'),
         ESJVMContext('jvm_warning_nodes'),
         ESJVMSummary()
