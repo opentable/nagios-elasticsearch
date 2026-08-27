@@ -83,7 +83,7 @@ class ESReadOnlyIndicesContext(nagiosplugin.Context):
         es = resource
         message = (
             f'{metric.value} of {es.total_count} Elasticsearch indices '
-            f'are read-only on {es.host}'
+            'are read-only'
         )
         if metric.value > 0:
             return nagiosplugin.Result(nagiosplugin.Critical, hint=message)
