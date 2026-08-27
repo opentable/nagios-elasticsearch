@@ -65,6 +65,26 @@ Options:
 python check_es_unassigned_shards.py --host=myescluster.com
 ```
 
+###Check Read-only Indices
+
+This plugin checks every index for the Elasticsearch flood-stage protection
+setting ``index.blocks.read_only_allow_delete``. It returns CRITICAL when one
+or more indices are read-only and reports the affected count out of the total
+index count.
+
+```
+Usage: check_es_read_only_indices.py [options]
+
+Options:
+  -h, --help            show this help message and exit
+  -H HOST, --host=HOST  The cluster to check
+  -P PORT, --port=PORT  The ES port - defaults to 9200
+  -T TIMEOUT, --timeout=TIMEOUT
+                        HTTP timeout in seconds - defaults to 10
+
+python check_es_read_only_indices.py --host=myescluster.com
+```
+
 ###Check Node JVM Usage
 
 This plugin can be used to ensure that the nodes in the cluster are not approaching, or exceeding, the thresholds that we determine that the JVM needs to run at. Currently, if any of the nodes exceed the critical limt, then the cluster will throw a CRITICAL error. If no nodes exceed the critical threshold but a node exceeds the warning threshold, then the cluster will throw a WARNING.
