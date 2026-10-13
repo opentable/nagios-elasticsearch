@@ -75,10 +75,10 @@ class ESJVMSummary(nagiosplugin.Summary):
 class ESJVMContext(nagiosplugin.Context):
     def evaluate(self, metric, resource):
         if metric.name == 'jvm_critical_nodes' and metric.value > 0:
-            return nagiosplugin.Result(nagiosplugin.Critical)
+            return nagiosplugin.Result(nagiosplugin.Critical, metric=metric)
         elif metric.name == 'jvm_warning_nodes' and metric.value > 0:
-            return nagiosplugin.Result(nagiosplugin.Warn)
-        return nagiosplugin.Result(nagiosplugin.Ok)
+            return nagiosplugin.Result(nagiosplugin.Warn, metric=metric)
+        return nagiosplugin.Result(nagiosplugin.Ok, metric=metric)
 
 
 @nagiosplugin.guarded
@@ -99,6 +99,8 @@ def main():
         ESJVMContext('jvm'),
         ESJVMContext('jvm_critical_nodes'),
         ESJVMContext('jvm_warning_nodes'),
+        nagiosplugin.Context('critical_details'),
+        nagiosplugin.Context('warning_details'),
         ESJVMSummary()
     )
     check.main()
